@@ -5,6 +5,7 @@ const state = {
   questions: [],
   chapters: [],
   activeChapter: "全部",
+  activeType: "all",
   activeMode: "all",
   currentIndex: 0,
   checked: false,
@@ -23,11 +24,19 @@ const modeLabels = {
   favorite: "收藏"
 };
 
+const typeLabels = {
+  all: "全部题型",
+  fill: "填空",
+  choice: "选择",
+  judge: "判断"
+};
+
 function loadStoredState() {
   try {
     const saved = JSON.parse(localStorage.getItem(storageKey) || "{}");
     state.records = saved.records || {};
     state.activeChapter = saved.activeChapter || "全部";
+    state.activeType = saved.activeType || "all";
     state.activeMode = saved.activeMode || "all";
     state.currentIndex = saved.currentIndex || 0;
   } catch {
@@ -41,6 +50,7 @@ function saveState() {
     JSON.stringify({
       records: state.records,
       activeChapter: state.activeChapter,
+      activeType: state.activeType,
       activeMode: state.activeMode,
       currentIndex: state.currentIndex
     })
@@ -88,6 +98,9 @@ function filteredQuestions() {
   if (state.activeChapter !== "全部") {
     list = list.filter((item) => item.chapter === state.activeChapter);
   }
+  if (state.activeType !== "all") {
+    list = list.filter((item) => item.type === state.activeType);
+  }
   if (state.activeMode === "wrong") {
     list = list.filter((item) => getQuestionRecord(item.id).wrong > 0);
   }
@@ -120,6 +133,20 @@ function typeName(type) {
   return { fill: "填空", choice: "选择", judge: "判断" }[type] || type;
 }
 
+function shortChapterName(chapter) {
+  return String(chapter).replace(/^第(.+?)章[：:]/, "第$1章");
+}
+
+function typeCounts(chapter) {
+  const scoped = state.questions.filter((item) => chapter === "全部" || item.chapter === chapter);
+  return {
+    all: scoped.length,
+    fill: scoped.filter((item) => item.type === "fill").length,
+    choice: scoped.filter((item) => item.type === "choice").length,
+    judge: scoped.filter((item) => item.type === "judge").length
+  };
+}
+
 function resetAnswer() {
   state.checked = false;
   state.result = null;
@@ -131,6 +158,24 @@ function switchMode(mode) {
   state.activeMode = mode;
   state.currentIndex = 0;
   if (mode === "random") shuffleCurrentList();
+  resetAnswer();
+  saveState();
+  render();
+}
+
+function switchType(type) {
+  state.activeType = type;
+  state.currentIndex = 0;
+  resetAnswer();
+  saveState();
+  render();
+}
+
+function startUnitPractice(chapter, type) {
+  state.activeChapter = chapter;
+  state.activeType = type;
+  state.activeMode = "all";
+  state.currentIndex = 0;
   resetAnswer();
   saveState();
   render();
@@ -274,6 +319,55 @@ function renderFilters() {
         </select>
         <input data-action="search" value="${escapeHtml(state.query)}" placeholder="搜索题干" />
       </div>
+      <div class="type-tabs" aria-label="题型">
+        ${Object.entries(typeLabels)
+          .map(
+            ([type, label]) =>
+              `<button class="${state.activeType === type ? "active" : ""}" data-type-filter="${type}">
+                <span>${label}</span>
+                <em>${typeCounts(state.activeChapter)[type]}</em>
+              </button>`
+          )
+          .join("")}
+      </div>
+    </section>
+    ${renderUnitPractice()}
+  `;
+}
+
+function renderUnitPractice() {
+  return `
+    <section class="unit-practice">
+      <div class="section-title">
+        <h2>单元练习</h2>
+        <span>${escapeHtml(state.activeChapter === "全部" ? "全部单元" : shortChapterName(state.activeChapter))} · ${typeLabels[state.activeType]}</span>
+      </div>
+      <div class="unit-list">
+        ${state.chapters
+          .map((chapter) => {
+            const counts = typeCounts(chapter);
+            const active = chapter === state.activeChapter;
+            return `
+              <article class="unit-card ${active ? "active" : ""}">
+                <button class="unit-main" data-unit="${escapeHtml(chapter)}" data-unit-type="all">
+                  <strong>${escapeHtml(shortChapterName(chapter))}</strong>
+                  <span>${counts.all} 题</span>
+                </button>
+                <div class="unit-types">
+                  ${["fill", "choice", "judge"]
+                    .map(
+                      (type) =>
+                        `<button class="${active && state.activeType === type ? "active" : ""}" data-unit="${escapeHtml(chapter)}" data-unit-type="${type}" ${counts[type] ? "" : "disabled"}>
+                          <span>${typeLabels[type]}</span><em>${counts[type]}</em>
+                        </button>`
+                    )
+                    .join("")}
+                </div>
+              </article>
+            `;
+          })
+          .join("")}
+      </div>
     </section>
   `;
 }
@@ -411,8 +505,13 @@ app.addEventListener("click", async (event) => {
   const mode = target.dataset.mode;
   const action = target.dataset.action;
   const answer = target.dataset.answer;
+  const typeFilter = target.dataset.typeFilter;
+  const unit = target.dataset.unit;
+  const unitType = target.dataset.unitType;
 
   if (mode) switchMode(mode);
+  if (typeFilter) switchType(typeFilter);
+  if (unit && unitType) startUnitPractice(unit, unitType);
   if (answer && !state.checked) {
     state.selectedAnswer = answer;
     render();
