@@ -2,8 +2,8 @@ const CACHE = "question-pwa-v2";
 const ASSETS = [
   "./",
   "./index.html",
-  "./src/app.js",
-  "./src/styles.css",
+  "./src/app.js?v=unit-practice",
+  "./src/styles.css?v=unit-practice",
   "./src/data/questions.ts",
   "./manifest.webmanifest",
   "./public/icon.svg"
