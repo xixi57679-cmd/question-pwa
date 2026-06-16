@@ -692,4 +692,3 @@ async function boot() {
 boot().catch((error) => {
   app.innerHTML = `<main class="empty"><h2>题库加载失败</h2><p>${escapeHtml(error.message)}</p></main>`;
 });
-isPracticing
