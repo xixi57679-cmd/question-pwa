@@ -1,9 +1,9 @@
-const CACHE = "question-pwa-v5";
+const CACHE = "question-pwa-v6";
 const ASSETS = [
   "./",
   "./index.html",
   "./src/app.js?v=practice-rules",
-  "./src/comprehensive.js?v=practice-rules-2",
+  "./src/comprehensive.js?v=practice-rules-3",
   "./src/styles.css?v=unit-practice",
   "./src/data/questions.ts",
   "./manifest.webmanifest",
