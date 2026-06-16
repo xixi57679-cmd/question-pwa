@@ -14,7 +14,9 @@ const state = {
   selectedAnswer: "",
   records: {},
   query: "",
-  showSheet: false
+  showSheet: false,
+  practiceOrder: [],
+  isPracticing: false
 };
 
 const modeLabels = {
@@ -114,8 +116,40 @@ function filteredQuestions() {
   return list;
 }
 
+function shuffleItems(items) {
+  const shuffled = [...items];
+  for (let index = shuffled.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    [shuffled[index], shuffled[swapIndex]] = [shuffled[swapIndex], shuffled[index]];
+  }
+  return shuffled;
+}
+
+function resetPracticeOrder() {
+  state.practiceOrder = [];
+}
+
+function ensureRandomOrder() {
+  if (state.activeMode !== "random") return;
+  const currentIds = filteredQuestions().map((item) => item.id);
+  const samePool =
+    state.practiceOrder.length === currentIds.length &&
+    state.practiceOrder.every((id) => currentIds.includes(id));
+  if (!samePool) {
+    state.practiceOrder = shuffleItems(currentIds);
+    state.currentIndex = 0;
+  }
+}
+
+function currentQuestions() {
+  if (state.activeMode !== "random") return filteredQuestions();
+  ensureRandomOrder();
+  const byId = new Map(filteredQuestions().map((item) => [item.id, item]));
+  return state.practiceOrder.map((id) => byId.get(id)).filter(Boolean);
+}
+
 function visibleQuestion() {
-  const list = filteredQuestions();
+  const list = currentQuestions();
   if (!list.length) return null;
   state.currentIndex = Math.max(0, Math.min(state.currentIndex, list.length - 1));
   return list[state.currentIndex];
@@ -154,20 +188,23 @@ function resetAnswer() {
   state.selectedAnswer = "";
 }
 
+function choosePracticeSettings() {
+  state.currentIndex = 0;
+  resetPracticeOrder();
+  resetAnswer();
+  if (state.activeMode === "random") ensureRandomOrder();
+  saveState();
+}
+
 function switchMode(mode) {
   state.activeMode = mode;
-  state.currentIndex = 0;
-  if (mode === "random") shuffleCurrentList();
-  resetAnswer();
-  saveState();
+  choosePracticeSettings();
   render();
 }
 
 function switchType(type) {
   state.activeType = type;
-  state.currentIndex = 0;
-  resetAnswer();
-  saveState();
+  choosePracticeSettings();
   render();
 }
 
@@ -175,17 +212,44 @@ function startUnitPractice(chapter, type) {
   state.activeChapter = chapter;
   state.activeType = type;
   state.activeMode = "all";
+  choosePracticeSettings();
+  render();
+}
+
+function startPractice() {
+  choosePracticeSettings();
+  const list = currentQuestions();
+  if (!list.length) {
+    alert("当前条件下没有题目");
+    return;
+  }
+  const ok = confirm("是否进入答题？");
+  if (!ok) return;
+  state.isPracticing = true;
+  render();
+}
+
+function exitPractice() {
+  state.isPracticing = false;
   state.currentIndex = 0;
+  resetPracticeOrder();
   resetAnswer();
   saveState();
   render();
 }
 
-function shuffleCurrentList() {
-  const pool = filteredQuestions();
-  if (!pool.length) return;
-  const next = pool[Math.floor(Math.random() * pool.length)];
-  state.currentIndex = filteredQuestions().findIndex((item) => item.id === next.id);
+function finishPractice() {
+  alert("恭喜你完成此次练习");
+  state.isPracticing = false;
+  state.activeChapter = "全部";
+  state.activeType = "all";
+  state.activeMode = "all";
+  state.currentIndex = 0;
+  state.query = "";
+  resetPracticeOrder();
+  resetAnswer();
+  saveState();
+  render();
 }
 
 function answerChoices(question) {
@@ -217,12 +281,29 @@ function checkAnswer() {
   if (!question) return;
   if (question.type === "fill" && !state.fillValues.some((value) => value && value.trim())) return;
   if (question.type !== "fill" && !state.selectedAnswer) return;
+  const list = currentQuestions();
+  const isLast = state.currentIndex >= list.length - 1;
   const correct = isCurrentCorrect(question);
   const record = getQuestionRecord(question.id);
   record.answered += 1;
   record.lastResult = correct ? "correct" : "wrong";
-  if (correct) record.correct += 1;
-  else record.wrong += 1;
+  if (correct) {
+    record.correct += 1;
+    record.wrong = 0;
+  } else {
+    record.wrong += 1;
+  }
+  if (isLast) {
+    saveState();
+    finishPractice();
+    return;
+  }
+  if (state.activeMode === "wrong" && correct) {
+    resetAnswer();
+    saveState();
+    render();
+    return;
+  }
   state.checked = true;
   state.result = correct ? "correct" : "wrong";
   saveState();
@@ -230,13 +311,17 @@ function checkAnswer() {
 }
 
 function nextQuestion(step = 1) {
-  const list = filteredQuestions();
+  const list = currentQuestions();
   if (!list.length) return;
-  if (state.activeMode === "random") {
-    state.currentIndex = Math.floor(Math.random() * list.length);
-  } else {
-    state.currentIndex = (state.currentIndex + step + list.length) % list.length;
+  if (step > 0 && state.currentIndex >= list.length - 1) {
+    alert("已经是最后一题");
+    return;
   }
+  if (step < 0 && state.currentIndex <= 0) {
+    alert("已经是第一题");
+    return;
+  }
+  state.currentIndex += step;
   resetAnswer();
   saveState();
   render();
@@ -330,12 +415,13 @@ function renderFilters() {
           )
           .join("")}
       </div>
+      <button class="start-practice" data-action="start">开始答题</button>
     </section>
-    ${renderUnitPractice()}
   `;
 }
 
 function renderUnitPractice() {
+  const allCounts = typeCounts("全部");
   return `
     <section class="unit-practice">
       <div class="section-title">
@@ -343,6 +429,22 @@ function renderUnitPractice() {
         <span>${escapeHtml(state.activeChapter === "全部" ? "全部单元" : shortChapterName(state.activeChapter))} · ${typeLabels[state.activeType]}</span>
       </div>
       <div class="unit-list">
+        <article class="unit-card comprehensive ${state.activeChapter === "全部" ? "active" : ""}">
+          <button class="unit-main" data-unit="全部" data-unit-type="all">
+            <strong>五章综合练习</strong>
+            <span>${allCounts.all} 题</span>
+          </button>
+          <div class="unit-types">
+            ${["fill", "choice", "judge"]
+              .map(
+                (type) =>
+                  `<button class="${state.activeChapter === "全部" && state.activeType === type ? "active" : ""}" data-unit="全部" data-unit-type="${type}">
+                    <span>${typeLabels[type]}</span><em>${allCounts[type]}</em>
+                  </button>`
+              )
+              .join("")}
+          </div>
+        </article>
         ${state.chapters
           .map((chapter) => {
             const counts = typeCounts(chapter);
@@ -383,6 +485,7 @@ function renderQuestion(question, list) {
   }
 
   const record = getQuestionRecord(question.id);
+  const isLast = state.currentIndex >= list.length - 1;
   return `
     <main class="question-panel">
       <div class="question-meta">
@@ -396,7 +499,7 @@ function renderQuestion(question, list) {
       ${renderResult(question)}
       <div class="actions">
         <button class="ghost" data-action="prev">上题</button>
-        <button class="primary" data-action="${state.checked ? "next" : "check"}">${state.checked ? "下题" : "交卷"}</button>
+        <button class="primary" data-action="${state.checked && isLast ? "finish" : state.checked ? "next" : "check"}">${state.checked && isLast ? "完成" : state.checked ? "下题" : "交卷"}</button>
         <button class="ghost" data-action="next">下题</button>
       </div>
       <div class="sub-actions">
@@ -406,6 +509,18 @@ function renderQuestion(question, list) {
         <span>正确 ${record.correct} · 错误 ${record.wrong}</span>
       </div>
     </main>
+  `;
+}
+
+function renderPracticeHeader() {
+  return `
+    <header class="practice-top">
+      <button class="ghost small" data-action="exit">返回首页</button>
+      <div>
+        <strong>${escapeHtml(state.activeChapter === "全部" ? "五章综合练习" : shortChapterName(state.activeChapter))}</strong>
+        <span>${typeLabels[state.activeType]} · ${modeLabels[state.activeMode]}</span>
+      </div>
+    </header>
   `;
 }
 
@@ -480,13 +595,22 @@ function renderSheet() {
 }
 
 function render() {
-  const list = filteredQuestions();
-  const question = visibleQuestion();
   const stats = overallStats();
+  if (!state.isPracticing) {
+    app.innerHTML = `
+      <div class="shell">
+        ${renderTop(stats)}
+        ${renderFilters()}
+        ${renderSheet()}
+      </div>
+    `;
+    return;
+  }
+  const list = currentQuestions();
+  const question = visibleQuestion();
   app.innerHTML = `
     <div class="shell">
-      ${renderTop(stats)}
-      ${renderFilters()}
+      ${renderPracticeHeader()}
       ${renderQuestion(question, list)}
       ${renderSheet()}
     </div>
@@ -519,6 +643,9 @@ app.addEventListener("click", async (event) => {
   if (action === "check") checkAnswer();
   if (action === "next") nextQuestion(1);
   if (action === "prev") nextQuestion(-1);
+  if (action === "finish") finishPractice();
+  if (action === "start") startPractice();
+  if (action === "exit") exitPractice();
   if (action === "favorite") toggleFavorite(target.dataset.id);
   if (action === "toggle-sheet") {
     state.showSheet = !state.showSheet;
@@ -539,8 +666,7 @@ app.addEventListener("input", (event) => {
   }
   if (target.dataset.action === "search") {
     state.query = target.value;
-    state.currentIndex = 0;
-    resetAnswer();
+    choosePracticeSettings();
     render();
   }
 });
@@ -549,9 +675,7 @@ app.addEventListener("change", (event) => {
   const target = event.target;
   if (target.dataset.action === "chapter") {
     state.activeChapter = target.value;
-    state.currentIndex = 0;
-    resetAnswer();
-    saveState();
+    choosePracticeSettings();
     render();
   }
 });
@@ -568,3 +692,4 @@ async function boot() {
 boot().catch((error) => {
   app.innerHTML = `<main class="empty"><h2>题库加载失败</h2><p>${escapeHtml(error.message)}</p></main>`;
 });
+isPracticing
