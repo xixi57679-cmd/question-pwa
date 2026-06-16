@@ -64,3 +64,21 @@ new MutationObserver(ensureComprehensiveCard).observe(document.body, {
   childList: true,
   subtree: true
 });
+
+
+function fixComprehensiveCounts() {
+    const card = document.querySelector(".unit-card.comprehensive");
+    if (!card) return;
+    const total = card.querySelector(".unit-main span");
+    if (total) total.textContent = "160 " + String.fromCharCode(39064);
+    const counts = ["52", "50", "58"];
+    card.querySelectorAll(".unit-types em").forEach((item, index) => {
+          if (counts[index]) item.textContent = counts[index];
+    });
+}
+
+fixComprehensiveCounts();
+new MutationObserver(fixComprehensiveCounts).observe(document.body, {
+    childList: true,
+    subtree: true
+});
